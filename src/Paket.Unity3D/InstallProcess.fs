@@ -49,9 +49,10 @@ module private Package =
                 FindAllFiles(contents.FullName,"*")
                 |> Array.map (fun f -> PackageFile(package,Path.Relative contents.FullName f.FullName, FileInfo(f.FullName)))
                 |> Seq.ofArray
+                |> Seq.map (fun d -> d)
             | _ -> Seq.empty
 
-    let LibraryFiles package (model:Map<NormalizedPackageName,InstallModel>) (settings:PackageInstallSettings option) =
+    let LibraryFiles root package (model:Map<NormalizedPackageName,InstallModel>) (settings:PackageInstallSettings option) =
         let fwrs =
             match settings with
             | Some(s) -> s.Settings.FrameworkRestrictions
@@ -61,13 +62,16 @@ module private Package =
         | Some(m) ->
             m.ApplyFrameworkRestrictions(fwrs)
              .GetLibReferences(Constants.Unity3DDotNetCompatibiliy)
-            |> Seq.map (fun f -> PackageFile(package,FileInfo(f).Name,FileInfo(f)))
+            |> Seq.map (fun filePath -> FileInfo(filePath).DirectoryName)
+            |> Seq.map (fun d -> FindAllFiles(d,"*")|> Array.map (fun f -> PackageFile(package,Path.Relative f.Directory.FullName f.FullName, FileInfo(f.FullName)))|> Seq.ofArray)
+            |> Seq.concat
         | _ -> Seq.empty
+        
 
     let Files root package (settings:PackageInstallSettings option) model =
         Seq.append
-        <| LibraryFiles package model settings
         <| ContentFiles root package settings
+        <| LibraryFiles root package model settings
 
     let InstallFiles root (settings:Map<NormalizedPackageName,PackageInstallSettings>) package model (project:Project) =
         Files root package (settings.TryFind (NormalizedPackageName package)) model
@@ -223,11 +227,12 @@ let InstallIntoProjects(sources, options : InstallerOptions, lockFile : LockFile
             do f.CopyTo(t.FullName) |> ignore
 
         do removeNonMetaFiles project.PaketDirectory.FullName
-
+        
         installFiles
         |> Seq.iter install
 
         do removeDeadDirs project.PaketDirectory
+
 
 /// Installs all packages from the lock file.
 let Install(sources, options : InstallerOptions, lockFile : LockFile) =
